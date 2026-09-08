@@ -1,53 +1,68 @@
 from aiogram import Router, F
 from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
-from aiogram.types import Message, CallbackQuery
+from aiogram.types import (
+    Message,
+    CallbackQuery,
+    InlineKeyboardMarkup,
+    InlineKeyboardButton,
+)
 
 from states import ReviewForm
 from database import add_review, get_reviews_for_user
-from validators import has_repeated_run, letters_count, looks_like_gibberish
 
 router = Router()
 
+STARS = {n: "⭐" * n for n in range(1, 6)}
 
-def valid_review(text: str) -> bool:
-    t = (text or "").strip()
-    if len(t) < 10 or len(t) > 500:
-        return False
-    if letters_count(t) < 8:
-        return False
-    if has_repeated_run(t) or looks_like_gibberish(t):
-        return False
-    return True
+
+def rating_kb():
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(text=STARS[n], callback_data=f"rate:{n}")
+                for n in range(1, 6)
+            ]
+        ]
+    )
 
 
 @router.callback_query(F.data.startswith("review:"))
 async def start_review(callback: CallbackQuery, state: FSMContext):
     _, project_id, target_id = callback.data.split(":")
-    await state.set_state(ReviewForm.entering_text)
+    await state.set_state(ReviewForm.choosing_rating)
     await state.update_data(project_id=int(project_id), target_id=int(target_id))
-    await callback.message.answer("Напиши отзыв о партнёре по проекту (пару предложений):")
+    await callback.message.answer(
+        "Оцени партнёра по проекту от 1 до 5 звёзд:",
+        reply_markup=rating_kb(),
+    )
     await callback.answer()
 
 
-@router.message(ReviewForm.entering_text)
-async def save_review(message: Message, state: FSMContext):
-    if not valid_review(message.text):
-        await message.answer(
-            "❗️Отзыв слишком короткий или непонятный.\n"
-            "Напиши пару предложений: как человек работал в команде и что получилось"
-        )
-        return
-
+@router.callback_query(ReviewForm.choosing_rating, F.data.startswith("rate:"))
+async def save_review(callback: CallbackQuery, state: FSMContext):
+    rating = int(callback.data.split(":", 1)[1])
     data = await state.get_data()
+
     await add_review(
-        reviewer_id=message.from_user.id,
+        reviewer_id=callback.from_user.id,
         target_id=data["target_id"],
         project_id=data["project_id"],
-        text=message.text.strip(),
+        rating=rating,
     )
+
     await state.clear()
-    await message.answer("Отзыв сохранён, спасибо! 🙌")
+    await callback.message.edit_text(f"Спасибо за отзыв! Твоя оценка: {STARS[rating]}")
+    await callback.answer("Отзыв сохранён 🙌")
+
+
+@router.message(ReviewForm.choosing_rating)
+async def rating_text_instead_of_buttons(message: Message):
+    """Пользователь пишет текстом вместо выбора звёзд кнопками."""
+    await message.answer(
+        "❗️Пожалуйста, выбери оценку от 1 до 5 звёзд с помощью кнопок ниже",
+        reply_markup=rating_kb(),
+    )
 
 
 @router.message(Command("reviews"))
@@ -57,9 +72,19 @@ async def show_my_reviews(message: Message):
         await message.answer("У тебя пока нет отзывов.")
         return
 
-    lines = ["⭐ Отзывы о тебе:\n"]
+    ratings = [r["rating"] for r in reviews if r["rating"]]
+    lines = []
+    if ratings:
+        avg = sum(ratings) / len(ratings)
+        lines.append(f"⭐ Средняя оценка: {avg:.1f} из 5 ({len(ratings)} оценок)\n")
+    else:
+        lines.append("⭐ Отзывы о тебе:\n")
+
     for r in reviews:
         author = r["reviewer_name"] or "Аноним"
-        lines.append(f"• {author}: {r['text']}")
+        if r["rating"]:
+            lines.append(f"• {author}: {STARS[r['rating']]}")
+        elif r["text"]:
+            lines.append(f"• {author}: {r['text']}")
 
     await message.answer("\n".join(lines))

@@ -78,11 +78,16 @@ def _field(user, name, default="не указано"):
     return value if value else default
 
 
-def format_profile_card(user, review_count: int = 0) -> str:
+def format_profile_card(user, review_count: int = 0, avg_rating: float | None = None) -> str:
     status_text = "🟢 В активном поиске" if user["is_active"] else "🔴 Приостановлен"
     projects_raw = _field(user, "projects", "")
     projects = projects_raw if projects_raw and projects_raw.lower() != "нет" else "не указано"
-    reviews_line = f"{review_count} отзыв(ов) — посмотреть: /reviews" if review_count else "пока нет"
+    if review_count and avg_rating:
+        reviews_line = f"⭐ {avg_rating:.1f} из 5 ({review_count}) — посмотреть: /reviews"
+    elif review_count:
+        reviews_line = f"{review_count} отзыв(ов) — посмотреть: /reviews"
+    else:
+        reviews_line = "пока нет"
     return (
         "👤 Твоя карточка соискателя:\n"
         f"• ФИО: {_field(user, 'full_name')}\n"
@@ -101,7 +106,9 @@ def format_profile_card(user, review_count: int = 0) -> str:
 
 async def build_profile_card(user) -> str:
     reviews = await get_reviews_for_user(user["user_id"])
-    return format_profile_card(user, review_count=len(reviews))
+    ratings = [r["rating"] for r in reviews if r["rating"]]
+    avg_rating = sum(ratings) / len(ratings) if ratings else None
+    return format_profile_card(user, review_count=len(reviews), avg_rating=avg_rating)
 
 
 async def start_profile_form(message: Message, state: FSMContext):

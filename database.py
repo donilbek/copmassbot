@@ -67,6 +67,7 @@ async def init_db():
                 target_id INTEGER,
                 project_id INTEGER,
                 text TEXT,
+                rating INTEGER,
                 created_at TEXT DEFAULT CURRENT_TIMESTAMP
             )
         """)
@@ -80,6 +81,9 @@ async def _migrate(db):
         "users": {
             "university": "TEXT",
             "projects": "TEXT",
+        },
+        "reviews": {
+            "rating": "INTEGER",
         },
     }
     for table, columns in expected.items():
@@ -256,13 +260,24 @@ async def get_bookmarks(user_id):
         return await cur.fetchall()
 
 
-async def add_review(reviewer_id, target_id, project_id, text):
+async def add_review(reviewer_id, target_id, project_id, rating):
     async with aiosqlite.connect(DB_PATH) as db:
         await db.execute(
-            "INSERT INTO reviews (reviewer_id, target_id, project_id, text) VALUES (?, ?, ?, ?)",
-            (reviewer_id, target_id, project_id, text),
+            "INSERT INTO reviews (reviewer_id, target_id, project_id, rating) VALUES (?, ?, ?, ?)",
+            (reviewer_id, target_id, project_id, rating),
         )
         await db.commit()
+
+
+async def get_average_rating(target_id):
+    """Возвращает (средняя_оценка, количество_оценок) по звёздам. Если оценок нет — (None, 0)."""
+    async with aiosqlite.connect(DB_PATH) as db:
+        cur = await db.execute(
+            "SELECT AVG(rating), COUNT(rating) FROM reviews WHERE target_id = ? AND rating IS NOT NULL",
+            (target_id,),
+        )
+        avg, count = await cur.fetchone()
+        return (avg, count) if count else (None, 0)
 
 
 async def get_reviews_for_user(target_id):

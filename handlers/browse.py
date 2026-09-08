@@ -95,7 +95,7 @@ async def send_next_card(message: Message, user_id: int, role: str, state: FSMCo
     await mark_project_seen(user_id, project["project_id"])
     await state.update_data(current_project_id=project["project_id"])
     await message.answer(
-        format_project_card(project),
+        await format_project_card(project),
         reply_markup=card_kb(project["project_id"]),
     )
 

@@ -9,7 +9,7 @@ from aiogram.types import (
 )
 
 from states import ProjectForm
-from database import create_project, get_user_projects, get_bookmarks
+from database import create_project, get_user_projects, get_bookmarks, get_average_rating
 from handlers.profile import ROLES
 from handlers.common import ensure_profile
 from validators import (
@@ -51,15 +51,19 @@ def roles_kb(selected: list[str]):
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
 
-def format_project_card(project) -> str:
-    return (
-        f"Название: {project['title']}\n"
-        f"Тематика: {project['topic']}\n"
-        f"Стадия: {project['stage']}\n"
-        f"Формат: {project['format']}\n"
-        f"Кого ищут: {project['roles']}\n"
-        f"О проекте: {project['description']}"
-    )
+async def format_project_card(project) -> str:
+    avg_rating, rating_count = await get_average_rating(project["owner_id"])
+    lines = [f"Название: {project['title']}"]
+    if rating_count:
+        lines.append(f"Рейтинг автора: ⭐ {avg_rating:.1f} из 5 ({rating_count})")
+    lines += [
+        f"Тематика: {project['topic']}",
+        f"Стадия: {project['stage']}",
+        f"Формат: {project['format']}",
+        f"Кого ищут: {project['roles']}",
+        f"О проекте: {project['description']}",
+    ]
+    return "\n".join(lines)
 
 
 @router.message(F.text == "📢 Ищу человека в проект")
@@ -219,7 +223,7 @@ async def process_format(message: Message, state: FSMContext):
     from database import get_project
     project = await get_project(project_id)
 
-    await message.answer("Проект опубликован ✅\n\n" + format_project_card(project))
+    await message.answer("Проект опубликован ✅\n\n" + await format_project_card(project))
 
 
 @router.callback_query(F.data == "proj:mine")
@@ -232,7 +236,7 @@ async def show_my_projects(callback: CallbackQuery):
 
     for project in projects:
         status = "🟢 активен" if project["is_active"] else "🔴 приостановлен"
-        await callback.message.answer(format_project_card(project) + f"\nСтатус: {status}")
+        await callback.message.answer(await format_project_card(project) + f"\nСтатус: {status}")
     await callback.answer()
 
 
@@ -253,4 +257,4 @@ async def show_bookmarks(message: Message):
                 )
             ]]
         )
-        await message.answer(format_project_card(project), reply_markup=kb)
+        await message.answer(await format_project_card(project), reply_markup=kb)

@@ -35,4 +35,4 @@ class BrowseForm(StatesGroup):
 
 
 class ReviewForm(StatesGroup):
-    entering_text = State()
+    choosing_rating = State()
