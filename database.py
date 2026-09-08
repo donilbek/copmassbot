@@ -68,6 +68,7 @@ async def init_db():
                 project_id INTEGER,
                 text TEXT,
                 rating INTEGER,
+                tags TEXT,
                 created_at TEXT DEFAULT CURRENT_TIMESTAMP
             )
         """)
@@ -84,6 +85,7 @@ async def _migrate(db):
         },
         "reviews": {
             "rating": "INTEGER",
+            "tags": "TEXT",
         },
     }
     for table, columns in expected.items():
@@ -210,6 +212,17 @@ async def set_response_status(project_id, applicant_id, status):
         await db.commit()
 
 
+async def count_pending_responses(applicant_id):
+    """Сколько откликов пользователя сейчас висят без ответа (не приняты и не отклонены)."""
+    async with aiosqlite.connect(DB_PATH) as db:
+        cur = await db.execute(
+            "SELECT COUNT(*) FROM responses WHERE applicant_id = ? AND status = 'pending'",
+            (applicant_id,),
+        )
+        (count,) = await cur.fetchone()
+        return count
+
+
 async def get_response(project_id, applicant_id):
     async with aiosqlite.connect(DB_PATH) as db:
         db.row_factory = aiosqlite.Row
@@ -260,13 +273,34 @@ async def get_bookmarks(user_id):
         return await cur.fetchall()
 
 
-async def add_review(reviewer_id, target_id, project_id, rating):
+async def add_review(reviewer_id, target_id, project_id, rating, tags=None):
+    """tags — список ключей тегов (например ["communicative", "responsible"]) или None."""
+    tags_str = ",".join(tags) if tags else None
     async with aiosqlite.connect(DB_PATH) as db:
         await db.execute(
-            "INSERT INTO reviews (reviewer_id, target_id, project_id, rating) VALUES (?, ?, ?, ?)",
-            (reviewer_id, target_id, project_id, rating),
+            "INSERT INTO reviews (reviewer_id, target_id, project_id, rating, tags) VALUES (?, ?, ?, ?, ?)",
+            (reviewer_id, target_id, project_id, rating, tags_str),
         )
         await db.commit()
+
+
+async def get_top_tags(target_id, limit=5):
+    """Возвращает список (тег, количество) — самые частые теги в отзывах о пользователе."""
+    async with aiosqlite.connect(DB_PATH) as db:
+        cur = await db.execute(
+            "SELECT tags FROM reviews WHERE target_id = ? AND tags IS NOT NULL AND tags != ''",
+            (target_id,),
+        )
+        rows = await cur.fetchall()
+
+    counts = {}
+    for (tags_str,) in rows:
+        for tag in tags_str.split(","):
+            tag = tag.strip()
+            if tag:
+                counts[tag] = counts.get(tag, 0) + 1
+
+    return sorted(counts.items(), key=lambda kv: kv[1], reverse=True)[:limit]
 
 
 async def get_average_rating(target_id):

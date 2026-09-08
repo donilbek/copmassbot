@@ -9,7 +9,7 @@ from aiogram.types import (
 )
 
 from states import ProfileForm
-from database import upsert_user, get_user, get_reviews_for_user
+from database import upsert_user, get_user, get_reviews_for_user, get_top_tags
 from validators import (
     ERR_FULL_NAME,
     ERR_UNIVERSITY,
@@ -78,7 +78,12 @@ def _field(user, name, default="не указано"):
     return value if value else default
 
 
-def format_profile_card(user, review_count: int = 0, avg_rating: float | None = None) -> str:
+def format_profile_card(
+    user,
+    review_count: int = 0,
+    avg_rating: float | None = None,
+    top_tags: list | None = None,
+) -> str:
     status_text = "🟢 В активном поиске" if user["is_active"] else "🔴 Приостановлен"
     projects_raw = _field(user, "projects", "")
     projects = projects_raw if projects_raw and projects_raw.lower() != "нет" else "не указано"
@@ -88,6 +93,14 @@ def format_profile_card(user, review_count: int = 0, avg_rating: float | None = 
         reviews_line = f"{review_count} отзыв(ов) — посмотреть: /reviews"
     else:
         reviews_line = "пока нет"
+
+    tags_line = ""
+    if top_tags:
+        # Ленивый импорт: избегаем циклической загрузки модулей при старте
+        from handlers.review import TAG_LABELS
+        tags_text = ", ".join(f"{TAG_LABELS.get(tag, tag)} ×{count}" for tag, count in top_tags)
+        tags_line = f"• Часто отмечают: {tags_text}\n"
+
     return (
         "👤 Твоя карточка соискателя:\n"
         f"• ФИО: {_field(user, 'full_name')}\n"
@@ -100,6 +113,7 @@ def format_profile_card(user, review_count: int = 0, avg_rating: float | None = 
         f"• Номер телефона: {_field(user, 'phone')}\n"
         f"• Мои проекты: {projects}\n"
         f"• Отзывы: {reviews_line}\n"
+        f"{tags_line}"
         "• Закладки: посмотреть можно командой /bookmarks"
     )
 
@@ -108,7 +122,13 @@ async def build_profile_card(user) -> str:
     reviews = await get_reviews_for_user(user["user_id"])
     ratings = [r["rating"] for r in reviews if r["rating"]]
     avg_rating = sum(ratings) / len(ratings) if ratings else None
-    return format_profile_card(user, review_count=len(reviews), avg_rating=avg_rating)
+    top_tags = await get_top_tags(user["user_id"], limit=3)
+    return format_profile_card(
+        user,
+        review_count=len(reviews),
+        avg_rating=avg_rating,
+        top_tags=top_tags,
+    )
 
 
 async def start_profile_form(message: Message, state: FSMContext):

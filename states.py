@@ -36,3 +36,4 @@ class BrowseForm(StatesGroup):
 
 class ReviewForm(StatesGroup):
     choosing_rating = State()
+    choosing_tags = State()

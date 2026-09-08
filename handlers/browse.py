@@ -16,6 +16,8 @@ from database import (
     get_user,
     set_response_status,
     get_project,
+    get_response,
+    count_pending_responses,
 )
 from handlers.profile import ROLES, build_profile_card
 from handlers.project import format_project_card
@@ -33,6 +35,9 @@ from validators import (
 )
 
 router = Router()
+
+# Сколько откликов может одновременно висеть без ответа у одного пользователя
+MAX_PENDING_RESPONSES = 10
 
 
 def entry_kb():
@@ -257,6 +262,19 @@ async def browse_respond(callback: CallbackQuery, state: FSMContext):
         await callback.answer("Сначала заполни анкету", show_alert=True)
         await callback.message.answer(ERR_NO_PROFILE, reply_markup=fill_profile_kb())
         return
+
+    # Если это не повторный клик по уже отправленному отклику — проверяем лимит
+    already_responded = await get_response(project_id, applicant_id)
+    if not already_responded:
+        pending_count = await count_pending_responses(applicant_id)
+        if pending_count >= MAX_PENDING_RESPONSES:
+            await callback.answer(
+                f"❗️У тебя уже {pending_count} откликов висят без ответа. "
+                "Дождись решения хотя бы по одному из них (смотри «📁 Мои отклики»), "
+                "прежде чем откликаться дальше.",
+                show_alert=True,
+            )
+            return
 
     await add_response(project_id, applicant_id)
     await callback.answer("Заявка успешно отправлена✅")
